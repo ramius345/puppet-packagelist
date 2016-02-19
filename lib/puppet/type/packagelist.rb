@@ -1,3 +1,4 @@
+
 require 'puppet/type'
 
 Puppet::Type.newtype(:packagelist) do
@@ -19,6 +20,7 @@ from your mirror."
       [ /^(.*)\Z/m, [ :name ] ]
     ]
   end
+
 
   newparam(:purge, :boolean => true) do
     desc "Purge any installed packages that are not present in the list"
@@ -81,11 +83,25 @@ from your mirror."
     result
   end
 
+
+  def existing_package_names
+    existing_packages = self.catalog.resources.find_all{ |x|
+      x.is_a?(Puppet::Type.type(:package) )
+    }
+
+    existing_package_names = existing_packages.collect{ |package| package.name.to_s }
+  end
+
   def add_packages(packages)
     result = []
+
     provider.get_packages_list(packages).each do |name, version|
-      self.debug "ensuring #{name} => #{version}"
-      result << Puppet::Type.type(:package).new(:name => name, :ensure => version)
+      unless existing_package_names.include?(name)
+        self.debug "ensuring #{name} => #{version}"
+        result << Puppet::Type.type(:package).new(:name => name, :ensure => version)
+      else
+        self.debug "Package #{name} was already managed elsewhere!"
+      end
     end
     self.debug "adding #{result.count} package resources"
     result
@@ -95,8 +111,12 @@ from your mirror."
     result = []
     packages.each do |package|
       name = provider.get_package_name(package)
-      self.debug "ensuring #{name} => purged"
-      result << Puppet::Type.type(:package).new(:name => name, :ensure => :purged)
+      unless existing_package_names.include?(name)
+        self.debug "ensuring #{name} => purged"
+        result << Puppet::Type.type(:package).new(:name => name, :ensure => :purged)
+      else
+        self.warning "Package #{name} was included elsewhere but was not in the package list!"
+      end
     end
     self.debug "purging #{result.count} total packages"
     result
